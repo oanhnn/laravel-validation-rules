@@ -4,6 +4,7 @@ namespace Laravel\Validation\Rules;
 
 use Illuminate\Contracts\Validation\Rule;
 use Illuminate\Support\Facades\Lang;
+
 use function preg_match;
 
 class Password implements Rule

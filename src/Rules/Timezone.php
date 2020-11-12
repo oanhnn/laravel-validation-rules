@@ -5,6 +5,7 @@ namespace Laravel\Validation\Rules;
 use DateTimeZone;
 use Illuminate\Contracts\Validation\Rule;
 use Illuminate\Support\Facades\Lang;
+
 use function in_array;
 
 class Timezone implements Rule

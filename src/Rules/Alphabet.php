@@ -4,6 +4,7 @@ namespace Laravel\Validation\Rules;
 
 use Illuminate\Support\Facades\Lang;
 use Illuminate\Validation\Rule;
+
 use function join;
 use function preg_match;
 
