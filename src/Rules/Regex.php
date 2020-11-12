@@ -3,6 +3,9 @@
 namespace Laravel\Validation\Rules;
 
 use Illuminate\Contracts\Validation\Rule;
+use Illuminate\Support\Facades\Lang;
+
+use function preg_match;
 
 class Regex implements Rule
 {
@@ -42,6 +45,6 @@ class Regex implements Rule
      */
     public function message()
     {
-        return trans('validation.regex');
+        return Lang::get('validation.regex');
     }
 }
