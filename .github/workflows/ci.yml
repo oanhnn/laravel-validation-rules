@@ -1,14 +1,6 @@
 name: CI
 
-on:
-  push:
-    branches:
-      - 'master'
-      - 'develop'
-      - 'releases/*'
-  pull_request:
-    branches:
-      - 'master'
+on: [push, pull_request]
 
 jobs:
   # check-sercurity:
@@ -17,8 +9,6 @@ jobs:
   #   steps:
   #     - name: Checkout
   #       uses: actions/checkout@v2
-  #       with:
-  #         fetch-depth: 1
   #     - name: Setting up PHP
   #       uses: shivammathur/setup-php@v2
   #       with:
@@ -34,8 +24,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-        with:
-          fetch-depth: 1
       - name: Setting up PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -44,8 +32,8 @@ jobs:
       - name: Check coding style
         run: phpcs --standard=phpcs.xml.dist
 
-  run-test:
-    name: '[PHP] Test PHP${{ matrix.php }} - Laravel v${{ matrix.LARAVEL }} ${{ matrix.COMPOSER_ARGS }}'
+  run-tests:
+    name: '[PHP] Test with PHP${{ matrix.php }}, Laravel v${{ matrix.LARAVEL }} and ${{ matrix.dependencies }} dependencies'
     strategy:
       matrix:
         php:
@@ -55,48 +43,85 @@ jobs:
         LARAVEL:
           - 6.*
           - 7.*
-        COMPOSER_ARGS:
-          - --prefer-lowest
-          - --prefer-stable
+          - 8.*
+        dependencies:
+          - highest
+          - lowest
+        exclude:
+          - php: 7.2
+            LARAVEL: 8.*
+
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
+      - name: Setup cache environment
+        id: cache-extensions
+        uses: shivammathur/cache-extensions@v1
         with:
-          fetch-depth: 1
-      - name: Setting up PHP
+          php-version: ${{ matrix.php }}
+          extensions: curl, json, mbstring
+          key: cache-v1 # can be any string, change to clear the extension cache.
+
+      - name: Cache extensions
+        uses: actions/cache@v2
+        with:
+          path: ${{ steps.cache-extensions.outputs.dir }}
+          key: ${{ steps.cache-extensions.outputs.key }}
+          restore-keys: ${{ steps.cache-extensions.outputs.key }}
+
+      - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: curl, dom, json, mbstring, openssl
-          coverage: pcov
-          ini-values: pcov.directory=src
+          extensions: curl, json, mbstring
+          coverage: xdebug
           tools: composer
-      - name: Check PHP
-        run: |
-          php -v
-          php -m
-          composer -v
-      - name: Get Composer Cache Directory
-        id: composer-cache
+
+      - name: Setup cache dependencies
+        id: cache-composer
         run: echo "::set-output name=dir::$(composer config cache-files-dir)"
+
       - name: Cache dependencies
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
-          path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.json') }}
-          restore-keys: ${{ runner.os }}-composer-
-      - name: Install composer dependencies
+          path: ${{ steps.cache-composer.outputs.dir }}
+          # Use composer.json for key, if composer.lock is not committed.
+          key: ${{ runner.os }}-php-${{ matrix.php }}-L${{ matrix.LARAVEL }}-${{ matrix.dependencies }}-${{ hashFiles('**/composer.json') }}
+          restore-keys: ${{ runner.os }}-php-${{ matrix.php }}-L${{ matrix.LARAVEL }}-${{ matrix.dependencies }}-
+
+      - name: Install lowest dependencies with composer
         run: |
           composer require --no-interaction --no-update "illuminate/support:${{ matrix.LARAVEL }}"
-          composer update --no-interaction --no-suggest --prefer-dist ${{ matrix.COMPOSER_ARGS }}
-      - name: Run PHPUnit
-        run: php -d pcov.enabled=1 vendor/bin/phpunit --coverage-clover=build/logs/clover.xml
-      - name: Update test coverage
-        if: matrix.php == '7.4' && matrix.LARAVEL == '7.*' && contains(matrix.COMPOSER_ARGS, 'stable')
-        env:
-          COVERALLS_RUN_LOCALLY: 1
-          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+          composer update  --no-interaction --no-progress --no-suggest --prefer-lowest
+        if: matrix.dependencies == 'lowest'
+
+      - name: Install highest dependencies with composer
         run: |
-          composer require php-coveralls/php-coveralls
-          php vendor/bin/php-coveralls --coverage_clover=build/logs/clover.xml -v
+          composer require --no-interaction --no-update "illuminate/support:${{ matrix.LARAVEL }}"
+          composer update  --no-interaction --no-progress --no-suggest
+        if: matrix.dependencies == 'highest'
+
+      - name: Run PHPUnit
+        run: php vendor/bin/phpunit --verbose --stderr --coverage-text --coverage-clover=build/logs/clover.xml
+
+      - name: Upload coverage results to Coveralls
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COVERALLS_PARALLEL: true
+          COVERALLS_FLAG_NAME: php-${{ matrix.php }}-L${{ matrix.LARAVEL }}
+        run: |
+          composer global require php-coveralls/php-coveralls
+          php-coveralls --coverage_clover=build/logs/clover.xml -vvv
+        if: matrix.dependencies == 'highest'
+
+  coveralls-finish:
+    needs: [run-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Coveralls Finished
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
